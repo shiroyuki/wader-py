@@ -23,6 +23,7 @@ class Consumer:
         self._topic_handlers: dict[str, list[Handler | HandlingLambda]] = defaultdict(list)
 
     def on(self, topic: str, handle: Handler | HandlingLambda) -> "Consumer":
+        self._log.debug(f'T/{topic}: {handle}')
         self._topic_handlers[topic].append(handle)
         return self
 
@@ -33,13 +34,17 @@ class Consumer:
             group_id=group_id,
         )
 
-        self._log.info('Servers: %s', servers)
-        self._log.info('Topics: %s', topics)
-        self._log.info('Group ID: %s', group_id)
+        self._log.debug('Servers: %s', servers)
+        self._log.debug('Topics: %s', topics)
+        self._log.debug('Group ID: %s', group_id)
 
+        self._log.debug('Starting...')
         async with consumer:
+            self._log.info('Started')
             async for record in consumer:
-                if record.topic not in self._topic_handlers:
+                self._log.info(f'Received ({record})')
+
+                if record.topic in self._topic_handlers:
                     job = Job(**json.loads(record.value))
 
                     if not job.topic:
@@ -54,7 +59,8 @@ class Consumer:
 
                         # TODO Publish the execution information
 
-                        if execution.block_next_handler:
+                        if execution and execution.block_next_handler:
+                            self._log.debug(f'Blocked the next handler ({execution})')
                             break
                         # end if
                     # end for
