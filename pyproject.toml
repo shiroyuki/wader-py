@@ -1,0 +1,24 @@
+[project]
+name = "wader-py"
+version = "0.1.0"
+description = "A simple ETL framework"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies =[
+    'aiokafka~=0.12',
+    'click~=8.2',
+    'python-dotenv~=1.1',
+    'imagination>=3.4',
+    'opentelemetry-api',
+    'opentelemetry-sdk',
+    'opentelemetry-instrumentation-aiokafka',
+    'opentelemetry-instrumentation-click',
+    'opentelemetry-instrumentation-logging',
+    'opentelemetry-instrumentation-sqlalchemy',
+    'pydantic~=2.11',
+]
+
+[project.optional-dependencies]
+minio = [
+    "minio>=7.2",
+]
