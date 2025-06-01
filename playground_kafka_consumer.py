@@ -2,12 +2,15 @@ import asyncio
 import logging
 import os
 
+from dotenv import load_dotenv
 from imagination.debug import get_logger
 from minio import Minio
 
 from wader.kafka.consumer import Consumer
 from wader.storages.manager import StorageManager
 from wader.storages.minio_storage import MinIOStorage
+
+load_dotenv()
 
 log = get_logger('playground_kafka_consumer', logging.INFO)
 

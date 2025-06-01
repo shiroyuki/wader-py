@@ -3,9 +3,11 @@ from abc import abstractmethod, ABC
 from collections import defaultdict
 from typing import Optional
 
-from aiokafka import AIOKafkaConsumer
+from aiokafka import AIOKafkaConsumer, ConsumerRecord
 from imagination.debug import get_logger_for
+from opentelemetry import trace
 
+from wader.helpers.dev import get_fqcn_of
 from wader.kafka.models import HandlingLambda, Job, Execution
 from wader.storages.manager import StorageManager
 
@@ -42,32 +44,38 @@ class Consumer:
         async with consumer:
             self._log.info('Started')
             async for record in consumer:
-                self._log.info(f'Received ({record})')
+                tracer = trace.get_tracer(get_fqcn_of(self))
 
-                if record.topic in self._topic_handlers:
-                    job = Job(**json.loads(record.value))
-
-                    if not job.topic:
-                        job.topic = record.topic
-
-                    # TODO Store the job information in the local database.
-
-                    for handle in self._topic_handlers[job.topic]:
-                        execution = handle.handle(job) if isinstance(handle, Handler) else handle(job)
-
-                        # TODO Store the execution information
-
-                        # TODO Publish the execution information
-
-                        if execution and execution.block_next_handler:
-                            self._log.debug(f'Blocked the next handler ({execution})')
-                            break
-                        # end if
-                    # end for
-                else:
-                    self._log.debug('No handler for %s', record)
+                with tracer.start_as_current_span('consumer'):
+                    await self.process_record(record)
             # end async for
         # end async with
+
+    async def process_record(self, record: ConsumerRecord):
+        self._log.info(f'Received ({record})')
+
+        if record.topic in self._topic_handlers:
+            job = Job(**json.loads(record.value))
+
+            if not job.topic:
+                job.topic = record.topic
+
+            # TODO Store the job information in the local database.
+
+            for handle in self._topic_handlers[job.topic]:
+                execution = handle.handle(job) if isinstance(handle, Handler) else handle(job)
+
+                # TODO Store the execution information
+
+                # TODO Publish the execution information
+
+                if execution and execution.block_next_handler:
+                    self._log.debug(f'Blocked the next handler ({execution})')
+                    break
+                # end if
+            # end for
+        else:
+            self._log.debug('No handler for %s', record)
 
 
 
