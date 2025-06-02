@@ -9,7 +9,6 @@ from opentelemetry import trace
 
 from wader.helpers.dev import get_fqcn_of
 from wader.kafka.models import HandlingLambda, Job, Execution
-from wader.storages.manager import StorageManager
 
 
 class Handler(ABC):
@@ -18,41 +17,54 @@ class Handler(ABC):
         raise NotImplementedError()
 
 
+class KillOrder(RuntimeError):
+    """ This error/exception is used to immediately terminate the process if possible. """
+
+
+class StopOrder(RuntimeError):
+    """ This error/exception is used to cleanly stop the consumption loop. """
+
+
 class Consumer:
-    def __init__(self, storages: StorageManager):
+    def __init__(self):
         self._log = get_logger_for(self)
-        self._storages = storages
         self._topic_handlers: dict[str, list[Handler | HandlingLambda]] = defaultdict(list)
+
+    def set_logger(self, log):
+        self._log = log
 
     def on(self, topic: str, handle: Handler | HandlingLambda) -> "Consumer":
         self._log.debug(f'T/{topic}: {handle}')
         self._topic_handlers[topic].append(handle)
         return self
 
-    async def run(self, servers: list[str], topics: list[str], group_id: Optional[str] = None) -> None:
-        consumer = AIOKafkaConsumer(
-            *topics,
-            bootstrap_servers=servers,
-            group_id=group_id,
-        )
-
-        self._log.debug('Servers: %s', servers)
-        self._log.debug('Topics: %s', topics)
-        self._log.debug('Group ID: %s', group_id)
-
+    async def run(self, consumer: AIOKafkaConsumer) -> None:
         self._log.debug('Starting...')
         async with consumer:
             self._log.info('Started')
             async for record in consumer:
-                tracer = trace.get_tracer(get_fqcn_of(self))
+                try:
+                    tracer = trace.get_tracer(get_fqcn_of(self))
 
-                with tracer.start_as_current_span('consumer'):
-                    await self.process_record(record)
+                    with tracer.start_as_current_span('consumer'):
+                        await self.process_record(record)
+                except StopOrder:
+                    self._log.warning('The stop order has been received. Stopping...')
+                    break
+                except KillOrder:
+                    self._log.warning('The kill order has been received. Terminating itself...')
+
+                    import sys
+                    sys.exit(1)
+                except Exception as e:
+                    self._log.error('Unexpected exception occurred', exc_info=e)
+                # end try
             # end async for
         # end async with
+        self._log.info('Stopped')
 
     async def process_record(self, record: ConsumerRecord):
-        self._log.info(f'Received ({record})')
+        self._log.debug(f'Received ({record})')
 
         if record.topic in self._topic_handlers:
             job = Job(**json.loads(record.value))
